@@ -79,6 +79,32 @@ coverage; it's capped at 600 rendered contacts for performance.
 
 ---
 
+## Deploy for family use (Render, free)
+
+The app is deploy-ready: it reads `process.env.PORT`, has no build step, and the default
+ADS-B mode needs **no API keys**. A repo + `render.yaml` are included.
+
+1. **Push to GitHub** (a new empty repo, e.g. `aether-radar`):
+   ```bash
+   git remote add origin https://github.com/<you>/aether-radar.git
+   git push -u origin main
+   ```
+   Your `.env` (the FR24 token) is git-ignored and will **not** be uploaded.
+
+2. **Deploy on Render**:
+   - Go to <https://dashboard.render.com> → **New ▸ Blueprint**.
+   - Connect the GitHub repo. Render reads `render.yaml` and creates a free web service.
+   - Click **Apply**. In ~1–2 min you get a public URL like
+     `https://aether-radar.onrender.com` — share it with your family.
+
+   *(Free tier sleeps after ~15 min idle; the first visit then takes ~30 s to wake.)*
+
+3. **Optional — enable the FR24 tab**: in the Render dashboard → your service →
+   **Environment** → add `FR24_TOKEN = <id>|<secret>`. Without it, the FR24 tab is
+   disabled automatically and ADS-B/Demo work normally.
+
+No login is configured — anyone with the link can open it.
+
 ## Architecture
 
 ```
