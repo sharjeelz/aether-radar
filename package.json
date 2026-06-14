@@ -1,0 +1,13 @@
+{
+  "name": "aether-radar",
+  "version": "1.0.0",
+  "private": true,
+  "description": "ÆTHER — a local Flightradar24-style live air-traffic console (FR24 API).",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

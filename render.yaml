@@ -1,0 +1,17 @@
+# Render.com Blueprint — deploys ÆTHER Radar as a free web service.
+# In Render: New ▸ Blueprint ▸ connect this repo. Everything below is auto-applied.
+services:
+  - type: web
+    name: aether-radar
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: node server.js
+    autoDeploy: true
+    healthCheckPath: /api/config
+    envVars:
+      # Optional — only needed for the FR24 tab. ADS-B (the default) needs no key.
+      # Add this in the Render dashboard under Environment if you want FR24:
+      #   FR24_TOKEN = <id>|<secret>
+      - key: NODE_VERSION
+        value: "20"

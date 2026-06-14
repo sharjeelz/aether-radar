@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>ÆTHER · Live Air Traffic</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="map"></div>
+
+  <!-- Scanline / grain atmosphere -->
+  <div class="fx-grain" aria-hidden="true"></div>
+  <div class="fx-vignette" aria-hidden="true"></div>
+
+  <!-- ===================== TOP HUD BAR ===================== -->
+  <header class="hud-top">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true">
+        <span class="sweep"></span>
+        <svg viewBox="0 0 32 32"><use href="#plane" /></svg>
+      </div>
+      <div class="brand-text">
+        <h1>ÆTHER<span class="tld">·radar</span></h1>
+        <p>LIVE AIR TRAFFIC SURVEILLANCE</p>
+      </div>
+    </div>
+
+    <div class="hud-search">
+      <svg class="s-ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="16.5" y1="16.5" x2="21" y2="21"/></svg>
+      <input id="search" type="text" placeholder="SEARCH FLIGHT · REG · HEX" autocomplete="off" spellcheck="false" />
+      <button id="search-clear" class="s-clear" aria-label="Clear search">✕</button>
+      <div class="search-results" id="search-results"></div>
+    </div>
+
+    <div class="hud-readouts">
+      <div class="readout">
+        <span class="r-label">ZULU</span>
+        <span class="r-value" id="clock">--:--:--</span>
+      </div>
+      <div class="readout">
+        <span class="r-label">CONTACTS</span>
+        <span class="r-value" id="contacts">0</span>
+      </div>
+      <div class="readout">
+        <span class="r-label">FEED</span>
+        <span class="r-value status" id="feed-status"><i class="dot"></i><span id="feed-text">INIT</span></span>
+      </div>
+      <div class="readout mode-readout">
+        <span class="r-label">MODE</span>
+        <span class="r-value" id="mode-badge">SANDBOX·LIVE</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===================== LEFT CONTROL DECK ===================== -->
+  <aside class="deck">
+    <div class="deck-card">
+      <header class="deck-head"><span>DATA SOURCE</span></header>
+      <div class="seg seg-src" id="src-seg" role="group" aria-label="Data source">
+        <button data-src="adsb" class="active">ADS-B</button>
+        <button data-src="fr24">FR24</button>
+        <button data-src="demo">DEMO</button>
+      </div>
+      <p class="src-note" id="src-note">Real live traffic · adsb.lol · free</p>
+    </div>
+
+    <div class="deck-card">
+      <header class="deck-head"><span>SECTOR FILTERS</span></header>
+
+      <label class="ctl-row">
+        <span class="ctl-label">Altitude floor</span>
+        <span class="ctl-val" id="alt-floor-val">ANY</span>
+      </label>
+      <input type="range" id="alt-floor" min="0" max="45000" step="1000" value="0" />
+
+      <div class="seg" id="cat-seg" role="group" aria-label="Aircraft category">
+        <button data-cat="" class="active">ALL</button>
+        <button data-cat="jet">JET</button>
+        <button data-cat="ga">PROP</button>
+        <button data-cat="heli">HELI</button>
+      </div>
+
+      <label class="switch-row">
+        <span>
+          <span class="switch-title">Vapor trails</span>
+          <span class="switch-sub">Path history</span>
+        </span>
+        <span class="switch"><input type="checkbox" id="trail-toggle" checked /><i></i></span>
+      </label>
+    </div>
+
+    <div class="deck-card legend">
+      <header class="deck-head"><span>ALTITUDE · FT</span></header>
+      <div class="legend-bar"></div>
+      <div class="legend-scale">
+        <span>0</span><span>10k</span><span>20k</span><span>30k</span><span>40k+</span>
+      </div>
+    </div>
+
+    <div class="deck-card hint">
+      <span class="hint-k">CLICK</span> a contact for telemetry ·
+      <span class="hint-k">SCROLL</span> to zoom
+    </div>
+  </aside>
+
+  <!-- ===================== RIGHT TELEMETRY PANEL ===================== -->
+  <section class="panel" id="panel" aria-hidden="true">
+    <button class="panel-close" id="panel-close" aria-label="Close">✕</button>
+
+    <div class="panel-head">
+      <div class="callsign-block">
+        <span class="cs-tag" id="p-airline-tag">···</span>
+        <h2 id="p-callsign">--------</h2>
+        <p id="p-airline">Acquiring…</p>
+      </div>
+      <div class="ac-glyph">
+        <svg viewBox="0 0 32 32" id="p-glyph"><use href="#plane" /></svg>
+      </div>
+    </div>
+
+    <div class="panel-actions">
+      <button class="pa-btn" id="btn-isolate"><span class="pa-dot"></span>ISOLATE</button>
+      <button class="pa-btn" id="btn-follow"><span class="pa-dot"></span>FOLLOW</button>
+    </div>
+
+    <div class="route">
+      <div class="route-top">
+        <div class="route-node">
+          <span class="rn-code" id="p-orig">···</span>
+          <span class="rn-name" id="p-orig-name">Origin</span>
+        </div>
+        <div class="route-line">
+          <span class="rl-track"></span>
+          <span class="rl-fill" id="p-progress"></span>
+          <svg viewBox="0 0 24 24" class="rl-plane" id="p-route-plane"><use href="#plane" /></svg>
+        </div>
+        <div class="route-node end">
+          <span class="rn-code" id="p-dest">···</span>
+          <span class="rn-name" id="p-dest-name">Destination</span>
+        </div>
+      </div>
+      <div class="route-meta">
+        <div class="rm-col">
+          <span class="rm-time" id="p-etd">--:--<i>z</i></span>
+          <span class="rm-label">DEP · est</span>
+          <span class="rm-wx" id="p-orig-wx">—</span>
+        </div>
+        <div class="rm-mid">
+          <span class="rm-remain" id="p-remain">—</span>
+          <span class="rm-label">enroute</span>
+        </div>
+        <div class="rm-col end">
+          <span class="rm-time" id="p-eta">--:--<i>z</i></span>
+          <span class="rm-label">ARR · est</span>
+          <span class="rm-wx" id="p-dest-wx">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="gauges">
+      <div class="gauge">
+        <span class="g-label">ALT</span>
+        <span class="g-val" id="p-alt">—</span>
+        <span class="g-unit">ft</span>
+      </div>
+      <div class="gauge">
+        <span class="g-label">GS</span>
+        <span class="g-val" id="p-gs">—</span>
+        <span class="g-unit">kt</span>
+      </div>
+      <div class="gauge">
+        <span class="g-label">V/S</span>
+        <span class="g-val" id="p-vs">—</span>
+        <span class="g-unit">fpm</span>
+      </div>
+      <div class="gauge">
+        <span class="g-label">HDG</span>
+        <span class="g-val" id="p-hdg">—</span>
+        <span class="g-unit">°</span>
+      </div>
+    </div>
+
+    <div class="spec-grid">
+      <div class="spec"><span>AIRCRAFT</span><b id="p-type">—</b></div>
+      <div class="spec"><span>REGISTRATION</span><b id="p-reg">—</b></div>
+      <div class="spec"><span>SQUAWK</span><b id="p-squawk">—</b></div>
+      <div class="spec"><span>MODE-S</span><b id="p-hex">—</b></div>
+      <div class="spec"><span>SOURCE</span><b id="p-source">—</b></div>
+      <div class="spec"><span>FR24 ID</span><b id="p-id">—</b></div>
+    </div>
+
+    <div class="position-strip">
+      <span id="p-pos">POS  --.----, ---.----</span>
+      <span id="p-age">· age —s</span>
+    </div>
+  </section>
+
+  <footer class="attribution">
+    Tiles © <a href="https://carto.com/" target="_blank" rel="noopener">CARTO</a> ·
+    Data © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OSM</a> ·
+    Flights © <a href="https://www.flightradar24.com/" target="_blank" rel="noopener">Flightradar24</a>
+  </footer>
+
+  <!-- Shared SVG sprite: top-view jet silhouette, nose pointing up (north) -->
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+      <symbol id="plane" viewBox="0 0 32 32">
+        <path d="M16 1.6c-1.05 0-1.9 1.6-1.9 4.5v6.0L2.4 19.2c-.5.3-.7.7-.7 1.3v1.6c0 .5.4.8.9.65l11.5-3.3v5.4l-3.0 2.2c-.3.2-.4.5-.4.85v1.0c0 .4.35.62.72.5L16 28.7l4.58 1.35c.37.12.72-.1.72-.5v-1.0c0-.35-.13-.65-.4-.85l-3.0-2.2v-5.4l11.5 3.3c.5.15.9-.15.9-.65v-1.6c0-.6-.2-1.0-.7-1.3L17.9 12.1V6.1c0-2.9-.85-4.5-1.9-4.5z"/>
+      </symbol>
+    </defs>
+  </svg>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="lookup.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
