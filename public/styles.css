@@ -336,6 +336,12 @@ input[type="range"]::-moz-range-thumb {
 .rm-remain { display: block; font-family: 'Chakra Petch', sans-serif; font-weight: 600; font-size: 14px; color: var(--cyan); }
 .rm-label { font-size: 7.5px; letter-spacing: 1.5px; color: var(--ink-faint); }
 .rm-wx { font-size: 11px; letter-spacing: 0.5px; color: var(--amber); margin-top: 2px; }
+.route-warn {
+  margin-top: 12px; padding: 7px 9px; font-size: 9px; line-height: 1.4; letter-spacing: 0.3px;
+  color: var(--amber); background: rgba(201,112,10,0.07);
+  border: 1px solid rgba(201,112,10,0.22); border-radius: 4px;
+}
+.route-warn[hidden] { display: none; }
 
 /* gauges */
 .gauges { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 18px; }

@@ -288,7 +288,7 @@ function updatePanel(c) {
   updateRouteEstimates(c);
 
   // keep the route line's mid-point anchored to the live position
-  if (c.routeOrigLL && c.routeDestLL && selectedId === c.id) paintRoute(c.routeOrigLL, [c.lat, c.lon], c.routeDestLL);
+  if (c.routeOrigLL && c.routeDestLL && selectedId === c.id) paintRoute(c.routeOrigLL, [c.lat, c.lon], c.routeDestLL, c.track);
 }
 
 async function enrich(c) {
@@ -316,7 +316,7 @@ async function enrich(c) {
         if (rt.airline && rt.airline.name) c.enrich.airline = rt.airline.name;
         c.routeOrigLL = [rt.origin.latitude, rt.origin.longitude];
         c.routeDestLL = [rt.destination.latitude, rt.destination.longitude];
-        paintRoute(c.routeOrigLL, [c.lat, c.lon], c.routeDestLL);
+        paintRoute(c.routeOrigLL, [c.lat, c.lon], c.routeDestLL, c.track);
         loadRouteWeather(c);
       } else {
         c.enrich.origCode = '—'; c.enrich.destCode = '—';
@@ -368,7 +368,7 @@ async function drawRoute(c) {
   c.routeOrigLL = null; c.routeDestLL = null;
   const f = c.data;
   if (c.demo) {
-    if (f.__origLL && f.__destLL) { c.routeOrigLL = f.__origLL; c.routeDestLL = f.__destLL; paintRoute(f.__origLL, [c.lat, c.lon], f.__destLL); loadRouteWeather(c); }
+    if (f.__origLL && f.__destLL) { c.routeOrigLL = f.__origLL; c.routeDestLL = f.__destLL; paintRoute(f.__origLL, [c.lat, c.lon], f.__destLL, c.track); loadRouteWeather(c); }
     return;
   }
   if (source === 'adsb') return; // handled by enrich() via adsbdb
@@ -380,20 +380,46 @@ async function drawRoute(c) {
   if (selectedId !== reqId) return;
   if (o && o.lat) c.routeOrigLL = [o.lat, o.lon];
   if (d && d.lat) c.routeDestLL = [d.lat, d.lon];
-  paintRoute(c.routeOrigLL, [c.lat, c.lon], c.routeDestLL);
+  paintRoute(c.routeOrigLL, [c.lat, c.lon], c.routeDestLL, c.track);
   loadRouteWeather(c);
 }
 
-function paintRoute(oLL, acLL, dLL) {
+function paintRoute(oLL, acLL, dLL, track) {
   routeLayer.clearLayers();
   if (oLL) {
     L.polyline([oLL, acLL], { color: '#0e7ea6', weight: 1.5, opacity: 0.6, dashArray: '2 6', interactive: false }).addTo(routeLayer);
     L.circleMarker(oLL, { radius: 4, color: '#0e7ea6', weight: 1.5, fillColor: '#0e7ea6', fillOpacity: 0.25, interactive: false }).addTo(routeLayer);
   }
   if (dLL) {
-    L.polyline([acLL, dLL], { color: '#c9700a', weight: 1.5, opacity: 0.65, dashArray: '2 6', interactive: false }).addTo(routeLayer);
-    L.circleMarker(dLL, { radius: 4, color: '#c9700a', weight: 1.5, fillColor: '#c9700a', fillOpacity: 0.25, interactive: false }).addTo(routeLayer);
+    // If the live track says the aircraft is flying away from this destination,
+    // the callsign→route lookup is almost certainly stale — draw it faint/grey
+    // instead of a confident line to an airport the plane is leaving behind.
+    const stale = routeStale(oLL, acLL, dLL, track);
+    const col = stale ? '#9aa0aa' : '#c9700a';
+    L.polyline([acLL, dLL], { color: col, weight: 1.5, opacity: stale ? 0.4 : 0.65, dashArray: stale ? '1 7' : '2 6', interactive: false }).addTo(routeLayer);
+    L.circleMarker(dLL, { radius: 4, color: col, weight: 1.5, fillColor: col, fillOpacity: stale ? 0.12 : 0.25, interactive: false }).addTo(routeLayer);
   }
+}
+
+// Bearing (deg, 0=N) from point a to point b.
+function bearingDeg(a, b) {
+  const f1 = a[0] * D2R, f2 = b[0] * D2R, dl = (b[1] - a[1]) * D2R;
+  const y = Math.sin(dl) * Math.cos(f2);
+  const x = Math.cos(f1) * Math.sin(f2) - Math.sin(f1) * Math.cos(f2) * Math.cos(dl);
+  return (Math.atan2(y, x) * R2D + 360) % 360;
+}
+// Smallest absolute angle between two bearings, 0–180.
+const angDiff = (a, b) => Math.abs(((a - b + 540) % 360) - 180);
+
+// True when the origin→dest route doesn't fit the live position/track, i.e. the
+// callsign route DB is stale (reused callsign). Shared by the line + the ETAs.
+function routeStale(oLL, acLL, dLL, track) {
+  if (!oLL || !dLL) return false;
+  const total = gcNm(oLL, dLL);
+  if (total < 5) return false;
+  if (gcNm(oLL, acLL) + gcNm(acLL, dLL) > total * 1.3) return true; // off the direct line
+  if (track != null && gcNm(acLL, dLL) > 25 && angDiff(track, bearingDeg(acLL, dLL)) > 100) return true; // flying away
+  return false;
 }
 
 /* ---- weather + estimated times ------------------------------------------ */
@@ -447,10 +473,12 @@ function loadRouteWeather(c) {
 function updateRouteEstimates(c) {
   const o = c.routeOrigLL, d = c.routeDestLL;
   const plane = $('p-route-plane'), fill = $('p-progress');
+  const warn = $('p-route-warn');
   if (!o || !d) {
     fill.style.width = '0%'; plane.style.left = '0%';
     $('p-etd').innerHTML = '--:--<i>z</i>'; $('p-eta').innerHTML = '--:--<i>z</i>';
     $('p-remain').textContent = '—';
+    if (warn) warn.hidden = true;
     return;
   }
   const ac = [c.lat, c.lon];
@@ -458,8 +486,11 @@ function updateRouteEstimates(c) {
   const denom = flown + remain;
 
   // Sanity: if the aircraft isn't actually near the origin→dest line, the route
-  // DB entry is stale/mismatched (reused callsign) — don't fabricate times.
-  if (total < 5 || denom > total * 1.3) {
+  // DB entry is stale/mismatched (reused callsign) — don't fabricate times, and
+  // flag it so a plane visibly heading away from "its" airport reads as stale data.
+  const stale = routeStale(o, ac, d, c.track);
+  if (warn) warn.hidden = !stale;
+  if (total < 5 || stale) {
     fill.style.width = '0%'; plane.style.left = '0%';
     $('p-etd').innerHTML = '--:--<i>z</i>'; $('p-eta').innerHTML = '--:--<i>z</i>';
     $('p-remain').textContent = '—';
@@ -792,7 +823,7 @@ async function commitSearch() {
         setTimeout(() => { if (source !== 'demo') poll(); }, 150);
       }
     } else {
-      resultsEl.innerHTML = `<div class="none">No aircraft found for “${q.toUpperCase()}”.<br>It may not be airborne right now.</div>`;
+      resultsEl.innerHTML = `<div class="none">No live ADS-B contact for “${q.toUpperCase()}”.<br>It may not be airborne, or it's flying over an area with no community ADS-B receivers (coverage is sparse over parts of the Middle East, Africa and oceans). Try again once it enters covered airspace.</div>`;
       resultsEl.classList.add('show');
     }
   } catch { /* ignore */ }
